@@ -1,101 +1,117 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect, useRef } from "react";
+import Webcam from "react-webcam";
+import * as cocoSsd from "@tensorflow-models/coco-ssd";
+import "@tensorflow/tfjs"; // Load TensorFlow.js
 
-export default function Home() {
+const Home = () => {
+  const [model, setModel] = useState<any>(null);
+  const webcamRef = useRef<Webcam | null>(null);
+  const [predictions, setPredictions] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Load the COCO-SSD model when the component mounts
+    const loadModel = async () => {
+      const loadedModel = await cocoSsd.load();
+      setModel(loadedModel);
+    };
+
+    loadModel();
+  }, []);
+
+  const captureAndDetectObjects = async () => {
+    if (model && webcamRef.current) {
+      const video = webcamRef.current.video;
+      const predictions = await model.detect(video);
+      setPredictions(predictions);
+      drawBoundingBoxes(predictions);
+    }
+  };
+
+  // Use requestAnimationFrame for smoother detection and better performance
+  useEffect(() => {
+    if (model) {
+      const detectObjects = () => {
+        captureAndDetectObjects();
+        requestAnimationFrame(detectObjects); // Keep calling detectObjects recursively
+      };
+      detectObjects(); // Start detecting objects
+
+      // Clean up on component unmount
+      return () => cancelAnimationFrame(detectObjects as unknown as number);
+    }
+  }, [model]);
+
+  const drawBoundingBoxes = (predictions: any[]) => {
+    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+    const context = canvas?.getContext("2d");
+    const video = webcamRef.current?.video;
+
+    if (!context || !video) return;
+
+    // Log predictions to debug
+    console.log("Predictions: ", predictions);
+
+    // Ensure canvas is the correct size
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    context.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
+
+    predictions.forEach((prediction) => {
+      const [x, y, width, height] = prediction.bbox;
+      context.beginPath();
+      context.rect(x, y, width, height);
+      context.lineWidth = 4;
+      context.strokeStyle = "red";
+      context.fillStyle = "red";
+      context.stroke();
+      context.fillText(
+        `${prediction.class} (${Math.round(prediction.score * 100)}%)`,
+        x,
+        y > 10 ? y - 5 : 10
+      );
+    });
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
+    <div style={{ textAlign: "center", position: "relative" }}>
+      <h1>Object Detection with TensorFlow.js & React Webcam</h1>
+      <div>
+        {/* Webcam Feed */}
+        <Webcam
+          audio={false}
+          ref={webcamRef}
+          screenshotFormat="image/jpeg"
+          width="100%"
+          videoConstraints={{
+            facingMode: "environment",
+          }}
         />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+        {/* Draw bounding boxes on canvas */}
+        {predictions.length > 0 && (
+          <canvas
+            id="canvas"
+            className="absolute top-6 left-0 pointer-events-none w-full"
+          />
+        )}
+      </div>
+      {/* Display Predictions */}
+      {predictions.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h3>Detected Objects:</h3>
+          <ul>
+            {predictions.map((prediction, index) => (
+              <li key={index}>
+                {prediction.class} - Confidence:{" "}
+                {Math.round(prediction.score * 100)}%
+              </li>
+            ))}
+          </ul>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
     </div>
   );
-}
+};
+
+export default Home;
